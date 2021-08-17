@@ -32,17 +32,20 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io/fs"
+	"os"
 )
 
 // Opt is a function to configure a *tls.Config.
 type Opt interface {
-	apply(*tls.Config) error
+	apply(fs.FS, *tls.Config) error
 }
 
-type opt struct{ fn func(*tls.Config) error }
+type opt struct {
+	fn func(fs.FS, *tls.Config) error
+}
 
-func (o *opt) apply(c *tls.Config) error { return o.fn(c) }
+func (o *opt) apply(fsys fs.FS, c *tls.Config) error { return o.fn(fsys, c) }
 
 // ForKind is used in some options to specify whether the option is meant to be
 // applied for server configurations or client configurations.
@@ -89,31 +92,34 @@ func CurvePreferences() []tls.CurveID {
 // If both certPath and keyPath are empty, this option does nothing. This
 // option is useful if accepting flags to optionally setup a cert.
 func MaybeWithDiskKeyPair(certPath, keyPath string) Opt {
-	return &opt{func(cfg *tls.Config) error {
+	return &opt{func(fsys fs.FS, cfg *tls.Config) error {
 		if certPath == "" && keyPath == "" {
 			return nil
 		}
-		return WithDiskKeyPair(certPath, keyPath).apply(cfg)
+		return WithDiskKeyPair(certPath, keyPath).apply(fsys, cfg)
 	}}
 }
 
 // WithDiskKeyPair loads a PEM encoded cert and key from certPath and keyPath
 // and adds the pair to the *tls.Config's Certificates.
 func WithDiskKeyPair(certPath, keyPath string) Opt {
-	return &opt{func(cfg *tls.Config) error {
-		cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	return &opt{func(fsys fs.FS, cfg *tls.Config) error {
+		cert, err := fs.ReadFile(fsys, certPath)
 		if err != nil {
 			return err
 		}
-		cfg.Certificates = append(cfg.Certificates, cert)
-		return nil
+		pem, err := fs.ReadFile(fsys, keyPath)
+		if err != nil {
+			return err
+		}
+		return WithKeyPair(cert, pem).apply(fsys, cfg)
 	}}
 }
 
 // WithKeyPair parses a PEM encoded cert and key and adds the pair to the
 // *tls.Config's Certificates.
 func WithKeyPair(cert, key []byte) Opt {
-	return &opt{func(cfg *tls.Config) error {
+	return &opt{func(_ fs.FS, cfg *tls.Config) error {
 		cert, err := tls.X509KeyPair(cert, key)
 		if err != nil {
 			return err
@@ -132,11 +138,11 @@ func WithKeyPair(cert, key []byte) Opt {
 // NOTE: If this option loads a CA, then system certs are not used. If you wish
 // to use system certs in addition to this CA, use the WithSystemCertPool option.
 func MaybeWithDiskCA(path string, forKind ForKind) Opt {
-	return &opt{func(cfg *tls.Config) error {
+	return &opt{func(fsys fs.FS, cfg *tls.Config) error {
 		if path == "" {
 			return nil
 		}
-		return WithDiskCA(path, forKind).apply(cfg)
+		return WithDiskCA(path, forKind).apply(fsys, cfg)
 	}}
 }
 
@@ -148,12 +154,12 @@ func MaybeWithDiskCA(path string, forKind ForKind) Opt {
 // NOTE: This option ensures system certs are not used. If you wish to use
 // system certs in addition to this CA, use the WithSystemCertPool option.
 func WithDiskCA(path string, forKind ForKind) Opt {
-	return &opt{func(cfg *tls.Config) error {
-		ca, err := ioutil.ReadFile(path)
+	return &opt{func(fsys fs.FS, cfg *tls.Config) error {
+		ca, err := fs.ReadFile(fsys, path)
 		if err != nil {
 			return err
 		}
-		return WithCA(ca, forKind).apply(cfg)
+		return WithCA(ca, forKind).apply(fsys, cfg)
 	}}
 }
 
@@ -165,7 +171,7 @@ func WithDiskCA(path string, forKind ForKind) Opt {
 // NOTE: This option ensures system certs are not used. If you wish to use
 // system certs in addition to this CA, use the WithSystemCertPool option.
 func WithCA(ca []byte, forKind ForKind) Opt {
-	return &opt{func(cfg *tls.Config) error {
+	return &opt{func(_ fs.FS, cfg *tls.Config) error {
 		pool := &cfg.RootCAs
 		if forKind == ForServer {
 			cfg.ClientAuth = tls.RequireAndVerifyClientCert
@@ -194,7 +200,7 @@ func WithCA(ca []byte, forKind ForKind) Opt {
 }
 
 var (
-	systemCA         = &opt{func(*tls.Config) error { return nil }}
+	systemCA         = &opt{func(fs.FS, *tls.Config) error { return nil }}
 	systemCASentinel = new(x509.CertPool)
 )
 
@@ -225,7 +231,7 @@ func WithSystemCertPool() Opt {
 //   - you do not want to set ServerName on the config manually
 //
 func WithServerName(name string) Opt {
-	return &opt{func(cfg *tls.Config) error {
+	return &opt{func(_ fs.FS, cfg *tls.Config) error {
 		cfg.ServerName = name
 		return nil
 	}}
@@ -235,21 +241,39 @@ func WithServerName(name string) Opt {
 // used by this package. This option is important if talking to legacy systems
 // that do not support newer cipher suites.
 func WithAdditionalCipherSuites(cipherSuites ...uint16) Opt {
-	return &opt{func(cfg *tls.Config) error {
+	return &opt{func(_ fs.FS, cfg *tls.Config) error {
 		cfg.CipherSuites = append(cfg.CipherSuites, cipherSuites...)
 		return nil
 	}}
 }
 
-type override struct{ fn func(*tls.Config) error }
+type override struct {
+	fn func(fs.FS, *tls.Config) error
+}
 
-func (o *override) apply(c *tls.Config) error { return o.fn(c) }
+func (o *override) apply(fsys fs.FS, c *tls.Config) error { return o.fn(fsys, c) }
 
 // WithOverride returns an option to override fields on a *tls.Config. All
 // overrides are run last, in order.
-func WithOverride(fn func(*tls.Config) error) Opt {
+func WithOverride(fn func(fs.FS, *tls.Config) error) Opt {
 	return &override{fn}
 }
+
+type filesystem struct{ fsys fs.FS }
+
+func (*filesystem) apply(fs.FS, *tls.Config) error { panic("unused") }
+
+// WithFS sets the filesystem to use for opening files, overriding the default
+// of simply using the host OS.
+func WithFS(fsys fs.FS) Opt {
+	return &filesystem{fsys}
+}
+
+type hostFS struct{}
+
+func (*hostFS) Open(name string) (fs.File, error) { return os.Open(name) }
+
+var osFS fs.FS = new(hostFS)
 
 // New creates and returns a *tls.Config with any options applied.
 //
@@ -261,11 +285,17 @@ func New(opts ...Opt) (*tls.Config, error) {
 		CurvePreferences: CurvePreferences(),
 	}
 
-	var first []Opt
-	var last []Opt
+	var (
+		fsys  = osFS
+		first []Opt
+		last  []Opt
+	)
 
 	for _, o := range opts {
 		switch t := o.(type) {
+		case *filesystem:
+			fsys = t.fsys
+
 		case *opt:
 			if t == systemCA {
 				cfg.ClientCAs = systemCASentinel
@@ -280,7 +310,7 @@ func New(opts ...Opt) (*tls.Config, error) {
 	}
 
 	// Before we apply overrides, strip our sentinel pointer.
-	first = append(first, &opt{func(c *tls.Config) error {
+	first = append(first, &opt{func(_ fs.FS, c *tls.Config) error {
 		if c.ClientCAs == systemCASentinel {
 			c.ClientCAs = nil
 		}
@@ -291,7 +321,7 @@ func New(opts ...Opt) (*tls.Config, error) {
 	}})
 
 	for _, opt := range append(first, last...) {
-		if err := opt.apply(cfg); err != nil {
+		if err := opt.apply(fsys, cfg); err != nil {
 			return nil, err
 		}
 	}

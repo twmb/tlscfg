@@ -3,6 +3,7 @@ package tlscfg
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"io/fs"
 	"reflect"
 	"testing"
 )
@@ -98,7 +99,7 @@ func TestSystemCertWithOverrideAndCA(t *testing.T) {
 	}
 
 	cfg, err := New(
-		WithOverride(func(cfg *tls.Config) error {
+		WithOverride(func(_ fs.FS, cfg *tls.Config) error {
 			cfg.ServerName = "foo"
 			return nil
 		}),
@@ -146,6 +147,7 @@ func TestMultiRootCA(t *testing.T) {
 			cfg, err := New(
 				WithDiskCA("testdata/ca1.pem", test.forKind),
 				WithDiskCA("testdata/ca2.pem", test.forKind),
+				WithFS(new(hostFS)), // we can test our internal impl
 			)
 			if err != nil {
 				t.Fatalf("unable to create cfg: %v", err)
