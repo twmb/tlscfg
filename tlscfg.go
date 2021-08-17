@@ -104,13 +104,16 @@ func MaybeWithDiskKeyPair(certPath, keyPath string) Opt {
 // and adds the pair to the *tls.Config's Certificates.
 func WithDiskKeyPair(certPath, keyPath string) Opt {
 	return &opt{func(fsys fs.FS, cfg *tls.Config) error {
+		if certPath == "" || keyPath == "" {
+			return errors.New("both cert and key paths must be specified")
+		}
 		cert, err := fs.ReadFile(fsys, certPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to read cert at %q: %w", certPath, err)
 		}
 		pem, err := fs.ReadFile(fsys, keyPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to read key at %q: %w", keyPath, err)
 		}
 		return WithKeyPair(cert, pem).apply(fsys, cfg)
 	}}
@@ -122,7 +125,7 @@ func WithKeyPair(cert, key []byte) Opt {
 	return &opt{func(_ fs.FS, cfg *tls.Config) error {
 		cert, err := tls.X509KeyPair(cert, key)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to load keypair: %w", err)
 		}
 		cfg.Certificates = append(cfg.Certificates, cert)
 		return nil
@@ -155,9 +158,12 @@ func MaybeWithDiskCA(path string, forKind ForKind) Opt {
 // system certs in addition to this CA, use the WithSystemCertPool option.
 func WithDiskCA(path string, forKind ForKind) Opt {
 	return &opt{func(fsys fs.FS, cfg *tls.Config) error {
+		if path == "" {
+			return errors.New("ca path must be specified")
+		}
 		ca, err := fs.ReadFile(fsys, path)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to read ca at %q: %w", path, err)
 		}
 		return WithCA(ca, forKind).apply(fsys, cfg)
 	}}
