@@ -3,7 +3,6 @@ package tlscfg
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"io/fs"
 	"reflect"
 	"testing"
 )
@@ -99,7 +98,7 @@ func TestSystemCertWithOverrideAndCA(t *testing.T) {
 	}
 
 	cfg, err := New(
-		WithOverride(func(_ fs.FS, cfg *tls.Config) error {
+		WithOverride(func(cfg *tls.Config) error {
 			cfg.ServerName = "foo"
 			return nil
 		}),
