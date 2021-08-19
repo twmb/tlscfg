@@ -282,11 +282,18 @@ type FS interface {
 	ReadFile(path string) ([]byte, error)
 }
 
-type hostFS struct{}
+type funcFS struct {
+	fn func(string) ([]byte, error)
+}
 
-func (*hostFS) ReadFile(name string) ([]byte, error) { return os.ReadFile(name) }
+func (f *funcFS) ReadFile(path string) ([]byte, error) { return f.fn(path) }
 
-var osFS FS = new(hostFS)
+// FuncFS returns a FS that reads a file using the given function.
+func FuncFS(fn func(path string) ([]byte, error)) FS {
+	return &funcFS{fn}
+}
+
+var osFS FS = FuncFS(func(path string) ([]byte, error) { return os.ReadFile(path) })
 
 // New creates and returns a *tls.Config with any options applied.
 //

@@ -146,7 +146,7 @@ func TestMultiRootCA(t *testing.T) {
 			cfg, err := New(
 				WithDiskCA("testdata/ca1.pem", test.forKind),
 				WithDiskCA("testdata/ca2.pem", test.forKind),
-				WithFS(new(hostFS)), // we can test our internal impl
+				WithFS(osFS), // we can test our internal impl
 			)
 			if err != nil {
 				t.Fatalf("unable to create cfg: %v", err)
