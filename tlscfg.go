@@ -254,6 +254,21 @@ func WithAdditionalCipherSuites(cipherSuites ...uint16) Opt {
 	}}
 }
 
+var withoutStrict = &opt{func(FS, *tls.Config) error { return nil }}
+
+// WithoutStrict opts out of the default paranoia of this package.
+// Specifically, this
+//
+//   - avoids setting Config.MinVersion, relying on the Go defaults of 1.2 for
+//     clients and 1.0 for servers
+//   - avoids setting Config.CipherSuites to only TLS 1.2+ non-static ciphers
+//   - avoids setting Config.CurvePreferences to only x25519
+//
+// Most problems using this package result in this package's curve preferences.
+func WithoutStrict() Opt {
+	return withoutStrict
+}
+
 type override struct {
 	fn func(*tls.Config) error
 }
@@ -318,12 +333,19 @@ func New(opts ...Opt) (*tls.Config, error) {
 			fs = t.fs
 
 		case *opt:
-			if t == systemCA {
+			switch {
+			case t == systemCA:
 				cfg.ClientCAs = systemCASentinel
 				cfg.RootCAs = systemCASentinel
-				continue
+
+			case t == withoutStrict:
+				cfg.MinVersion = 0
+				cfg.CipherSuites = nil
+				cfg.CurvePreferences = nil
+
+			default:
+				first = append(first, t)
 			}
-			first = append(first, t)
 
 		case *override:
 			last = append(last, t)
@@ -331,6 +353,7 @@ func New(opts ...Opt) (*tls.Config, error) {
 	}
 
 	// Before we apply overrides, strip our sentinel pointer.
+	// This is appended and ran AFTER other options.
 	first = append(first, &opt{func(_ FS, c *tls.Config) error {
 		if c.ClientCAs == systemCASentinel {
 			c.ClientCAs = nil
