@@ -11,20 +11,19 @@
 //
 // Usage:
 //
-//     cfg, err := tlscfg.New(
-//             tlscfg.MaybeWithDiskCA( // optional CA
-//                     *flagCA,
-//                     tlscfg.ForClient,
-//             ),
-//             tlscfg.WithDiskKeyPair( // required client cert+key pair
-//                     "cert.pem",
-//                     "key.pem",
-//             ),
-//     )
-//     if err != nil {
-//             // handle
-//     }
-//
+//	cfg, err := tlscfg.New(
+//	        tlscfg.MaybeWithDiskCA( // optional CA
+//	                *flagCA,
+//	                tlscfg.ForClient,
+//	        ),
+//	        tlscfg.WithDiskKeyPair( // required client cert+key pair
+//	                "cert.pem",
+//	                "key.pem",
+//	        ),
+//	)
+//	if err != nil {
+//	        // handle
+//	}
 package tlscfg
 
 import (
@@ -81,6 +80,10 @@ func CipherSuites() []uint16 {
 //
 // Currently, this returns only x25519. This may cause problems with old
 // versions of openssl, if so, be sure to add P256.
+//
+// This package by default does not set CurvePreferences, relying on the Go
+// default. However, you can opt into this package's CurvePreferences for
+// added paranoia.
 func CurvePreferences() []tls.CurveID {
 	return []tls.CurveID{tls.X25519}
 }
@@ -234,7 +237,6 @@ func WithSystemCertPool() Opt {
 //     config and sets ServerName)
 //   - you do not set InsecureSkipVerify to true
 //   - you do not want to set ServerName on the config manually
-//
 func WithServerName(name string) Opt {
 	return &opt{func(_ FS, cfg *tls.Config) error {
 		cfg.ServerName = name
@@ -300,9 +302,8 @@ var osFS FS = FuncFS(func(path string) ([]byte, error) { return os.ReadFile(path
 // This function will not error if no options are specified.
 func New(opts ...Opt) (*tls.Config, error) {
 	cfg := &tls.Config{
-		MinVersion:       tls.VersionTLS12,
-		CipherSuites:     CipherSuites(),
-		CurvePreferences: CurvePreferences(),
+		MinVersion:   tls.VersionTLS12,
+		CipherSuites: CipherSuites(),
 	}
 
 	var (
