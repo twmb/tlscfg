@@ -24,6 +24,7 @@ cfg, err := tlscfg.New(
                 "cert.pem",
                 "key.pem",
         ),
+        tlscfg.WithSystemCertPool(), // use system certs in addition to custom CA
 )
 if err != nil {
         // handle

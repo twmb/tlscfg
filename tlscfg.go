@@ -20,6 +20,7 @@
 //	                "cert.pem",
 //	                "key.pem",
 //	        ),
+//	        tlscfg.WithSystemCertPool(), // use system certs in addition to custom CA
 //	)
 //	if err != nil {
 //	        // handle
@@ -51,12 +52,24 @@ type ForKind uint8
 
 const (
 	// ForServer specifies that an option should work on server portions
-	// of a *tls.Config (adding a CA).
+	// of a *tls.Config (adding a CA), setting RequireAndVerifyClientCert.
 	ForServer ForKind = iota
 	// ForClient specifies that an option should work on client portions
 	// of a *tls.Config (adding a CA).
 	ForClient
 )
+
+// String returns the name of the ForKind.
+func (f ForKind) String() string {
+	switch f {
+	case ForServer:
+		return "ForServer"
+	case ForClient:
+		return "ForClient"
+	default:
+		return fmt.Sprintf("ForKind(%d)", f)
+	}
+}
 
 // CipherSuites returns this package's recommended ciphers that tls
 // configurations should use.
@@ -97,6 +110,9 @@ func MaybeWithDiskKeyPair(certPath, keyPath string) Opt {
 	return &opt{func(fs FS, cfg *tls.Config) error {
 		if certPath == "" && keyPath == "" {
 			return nil
+		}
+		if certPath == "" || keyPath == "" {
+			return errors.New("both cert and key paths must be specified, or both must be empty")
 		}
 		return WithDiskKeyPair(certPath, keyPath).apply(fs, cfg)
 	}}

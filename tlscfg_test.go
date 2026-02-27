@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -24,8 +25,8 @@ var (
 		0x20, 0x43, 0x41, 0x31, 0x12, 0x30, 0x10, 0x06, 0x03, 0x55,
 		0x04, 0x05, 0x13, 0x09,
 	}
-	subject1 = append(subjectBase, "196629234"...)
-	subject2 = append(subjectBase, "885211544"...)
+	subject1 = slices.Concat(subjectBase, []byte("196629234"))
+	subject2 = slices.Concat(subjectBase, []byte("885211544"))
 )
 
 func TestMaybe(t *testing.T) {
@@ -73,6 +74,15 @@ func TestMaybe(t *testing.T) {
 		}
 		if len(cfg.Certificates) != 1 {
 			t.Errorf("unexpectedly %d certificates when expecting 1 when non-empty keypair", len(cfg.Certificates))
+		}
+	}
+
+	{
+		_, err := New(
+			MaybeWithDiskKeyPair("testdata/client-cert.pem", ""),
+		)
+		if err == nil {
+			t.Error("expected error for mismatched keypair paths")
 		}
 	}
 }
@@ -185,5 +195,30 @@ func TestMultiRootCA(t *testing.T) {
 				t.Errorf("got subjects != exp subjects")
 			}
 		})
+	}
+}
+
+func TestWithServerName(t *testing.T) {
+	cfg, err := New(WithServerName("example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ServerName != "example.com" {
+		t.Errorf("got server name %q, expected %q", cfg.ServerName, "example.com")
+	}
+}
+
+func TestWithAdditionalCipherSuites(t *testing.T) {
+	extra := tls.TLS_RSA_WITH_AES_256_GCM_SHA384
+	cfg, err := New(WithAdditionalCipherSuites(extra))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := CipherSuites()
+	if len(cfg.CipherSuites) != len(base)+1 {
+		t.Fatalf("got %d cipher suites, expected %d", len(cfg.CipherSuites), len(base)+1)
+	}
+	if cfg.CipherSuites[len(cfg.CipherSuites)-1] != extra {
+		t.Error("additional cipher suite not appended")
 	}
 }
